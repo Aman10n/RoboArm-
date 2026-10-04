@@ -33,9 +33,32 @@ class TrajectoryPlanner:
         end = np.asarray(end_angles, dtype=float)
         if not np.all(np.isfinite(start)) or not np.all(np.isfinite(end)):
             raise ValueError("Trajectory angles must be finite numbers")
+        for index, (start_angle, end_angle, limit) in enumerate(
+            zip(start, end, self.sim.joint_limits, strict=True)
+        ):
+            if not limit["lower"] <= start_angle <= limit["upper"]:
+                raise ValueError(f"Start angle for joint {index + 1} exceeds its limits")
+            if not limit["lower"] <= end_angle <= limit["upper"]:
+                raise ValueError(f"Target angle for joint {index + 1} exceeds its limits")
         timestamps = np.linspace(0.0, duration, num_points)
         normalized_time = timestamps / duration
         return start, end, timestamps, normalized_time
+
+    def _validate_peak_velocity(
+        self, start: np.ndarray, end: np.ndarray, duration: float, blend_peak: float
+    ) -> None:
+        peak_velocities = np.abs(end - start) * blend_peak / duration
+        for index, (velocity, limit) in enumerate(
+            zip(peak_velocities, self.sim.joint_limits, strict=True)
+        ):
+            if velocity > limit["max_velocity"]:
+                minimum_duration = (
+                    abs(end[index] - start[index]) * blend_peak / limit["max_velocity"]
+                )
+                raise ValueError(
+                    f"Duration is too short for joint {index + 1}; "
+                    f"use at least {minimum_duration:.2f} seconds"
+                )
 
     def cubic_spline(
         self,
@@ -48,6 +71,7 @@ class TrajectoryPlanner:
         start, end, timestamps, s = self._validate(
             start_angles, end_angles, duration, num_points
         )
+        self._validate_peak_velocity(start, end, duration, 1.5)
         delta = end - start
         blend = 3 * s**2 - 2 * s**3
         velocity_blend = (6 * s - 6 * s**2) / duration
@@ -74,6 +98,7 @@ class TrajectoryPlanner:
         start, end, timestamps, s = self._validate(
             start_angles, end_angles, duration, num_points
         )
+        self._validate_peak_velocity(start, end, duration, 1.875)
         delta = end - start
         blend = 10 * s**3 - 15 * s**4 + 6 * s**5
         velocity_blend = (30 * s**2 - 60 * s**3 + 30 * s**4) / duration
@@ -143,6 +168,7 @@ class TrajectoryPlanner:
         start, end, timestamps, s = self._validate(
             start_angles, end_angles, duration, num_points
         )
+        self._validate_peak_velocity(start, end, duration, 1.0)
         delta = end - start
         velocities = np.repeat((delta / duration)[None, :], num_points, axis=0)
         return {

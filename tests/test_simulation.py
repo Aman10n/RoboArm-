@@ -93,6 +93,16 @@ def test_trajectory_rejects_non_finite_angles(simulation):
         planner.quintic_polynomial([0.0] * 7, [math.inf] * 7, 2.0, 20)
 
 
+def test_trajectory_rejects_joint_limit_and_velocity_violations(simulation):
+    planner = TrajectoryPlanner(simulation)
+
+    with pytest.raises(ValueError, match="exceeds its limits"):
+        planner.linear_interpolation([0.0] * 7, [10.0] * 7, 2.0, 20)
+
+    with pytest.raises(ValueError, match="too short"):
+        planner.quintic_polynomial([0.0] * 7, [1.0] * 7, 0.1, 20)
+
+
 def test_workspace_objects_are_unique_and_returned_as_snapshots(simulation):
     simulation.add_workspace_object("fixture", position=[0.4, 0.0, 0.05])
 

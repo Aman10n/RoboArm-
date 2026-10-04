@@ -444,9 +444,12 @@ def _plan_trajectory(req: TrajectoryRequest) -> dict:
         "cubic": trajectory_planner.cubic_spline,
         "quintic": trajectory_planner.quintic_polynomial,
     }
-    return planners[req.method](
-        start_angles, req.target_angles, req.duration, req.num_points
-    )
+    try:
+        return planners[req.method](
+            start_angles, req.target_angles, req.duration, req.num_points
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/trajectory/plan", tags=["trajectory"])
@@ -471,9 +474,12 @@ async def execute_trajectory(req: TrajectoryRequest):
 async def plan_multi_trajectory(req: MultiTrajectoryRequest):
     if not trajectory_planner:
         raise HTTPException(status_code=503, detail="Trajectory planner is not initialized")
-    return trajectory_planner.multi_point_trajectory(
-        req.via_points, req.segment_duration, req.num_points_per_segment
-    )
+    try:
+        return trajectory_planner.multi_point_trajectory(
+            req.via_points, req.segment_duration, req.num_points_per_segment
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/trajectory/stop", tags=["trajectory"])

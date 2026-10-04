@@ -201,3 +201,14 @@ def test_telemetry_includes_current_safety_violations(monkeypatch):
 
     assert payload["control_mode"] == api_module.control_mode
     assert payload["safety_violations"][0]["zone"] == "tool-guard"
+
+
+def test_trajectory_endpoint_returns_actionable_limit_error():
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/trajectory/plan",
+            json={"target_angles": [1.0] * 7, "duration": 0.1},
+        )
+
+    assert response.status_code == 422
+    assert "too short" in response.json()["detail"]
