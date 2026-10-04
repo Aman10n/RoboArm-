@@ -159,3 +159,21 @@ def test_session_history_exposes_summary_and_validates_limits():
     assert summary.json()["collision_count"] >= 0
     assert invalid_limit.status_code == 422
     assert missing.status_code == 404
+
+
+def test_keep_out_zone_blocks_motion_target():
+    zone = {
+        "name": "home-tool-keep-out",
+        "zone_type": "keep_out",
+        "min_bounds": [-0.05, 0.15, 0.60],
+        "max_bounds": [0.05, 0.25, 0.66],
+    }
+    with TestClient(app) as client:
+        created = client.post("/api/safety-zones", json=zone)
+        zone_id = created.json()["zone_id"]
+        blocked = client.post("/api/joints/set", json={"angles": [0.0] * 7})
+        client.delete(f"/api/safety-zones/{zone_id}")
+
+    assert created.status_code == 200
+    assert blocked.status_code == 409
+    assert "safety zone" in blocked.json()["detail"]

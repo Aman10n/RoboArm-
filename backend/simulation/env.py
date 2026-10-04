@@ -349,6 +349,7 @@ class RoboArmSimulation:
         self.telemetry_callbacks: list[Callable] = []
         self.collision_callbacks: list[Callable] = []
         self.step_callbacks: list[Callable[[float], None]] = []
+        self.motion_validator: Callable[[list[float]], None] | None = None
 
         # PD control gains
         self.kp = 15.0   # Proportional gain
@@ -413,6 +414,13 @@ class RoboArmSimulation:
                 raise ValueError(
                     "Emergency stop is engaged; reset the robot before commanding motion"
                 )
+        if self.motion_validator:
+            self.motion_validator(clamped)
+        with self.lock:
+            if self.emergency_stopped:
+                raise ValueError(
+                    "Emergency stop is engaged; reset the robot before commanding motion"
+                )
             self.target_angles = clamped
 
     def set_single_joint(self, joint_index: int, angle: float, force: float = None):
@@ -422,6 +430,15 @@ class RoboArmSimulation:
         lower = self.joint_limits[joint_index]['lower']
         upper = self.joint_limits[joint_index]['upper']
         angle = max(lower, min(upper, float(angle)))
+        with self.lock:
+            if self.emergency_stopped:
+                raise ValueError(
+                    "Emergency stop is engaged; reset the robot before commanding motion"
+                )
+            candidate = list(self.target_angles)
+        candidate[joint_index] = angle
+        if self.motion_validator:
+            self.motion_validator(candidate)
         with self.lock:
             if self.emergency_stopped:
                 raise ValueError(
@@ -533,6 +550,10 @@ class RoboArmSimulation:
 
     def add_step_callback(self, callback):
         self.step_callbacks.append(callback)
+
+    def set_motion_validator(self, callback: Callable[[list[float]], None] | None):
+        """Register a target validator invoked before motion commands are accepted."""
+        self.motion_validator = callback
 
     def clear_callbacks(self):
         """Remove callbacks left by a previous application lifecycle."""

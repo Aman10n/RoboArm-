@@ -102,3 +102,15 @@ def test_workspace_objects_are_unique_and_returned_as_snapshots(simulation):
     snapshot = simulation.get_workspace_objects()
     snapshot["fixture"]["position"][0] = 99
     assert simulation.get_workspace_objects()["fixture"]["position"][0] == 0.4
+
+
+def test_motion_validator_runs_before_target_is_updated(simulation):
+    def reject_target(_):
+        raise ValueError("unsafe target")
+
+    simulation.set_motion_validator(reject_target)
+
+    with pytest.raises(ValueError, match="unsafe target"):
+        simulation.set_joint_angles([0.2] * 7)
+
+    assert simulation.target_angles == [0.0] * 7

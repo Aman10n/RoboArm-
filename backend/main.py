@@ -82,6 +82,16 @@ def _record_telemetry(data: dict) -> None:
         logger.exception("Unable to persist telemetry sample")
 
 
+def _validate_motion_safety(angles: list[float]) -> None:
+    """Reject targets whose tool-center point violates an active safety zone."""
+    active_sim = _require_simulation()
+    position = active_sim.robot.get_end_effector(angles)["position"]
+    violations = SafetyZoneManager.check_position(position)
+    if violations:
+        messages = "; ".join(violation["message"] for violation in violations)
+        raise ValueError(f"Motion target violates a safety zone: {messages}")
+
+
 async def _broadcast_loop() -> None:
     """Broadcast telemetry samples to all connected WebSocket clients."""
     while True:
@@ -116,6 +126,7 @@ async def lifespan(_: FastAPI):
     kinematics = KinematicsEngine(sim)
     trajectory_planner = TrajectoryPlanner(sim)
     trajectory_executor = TrajectoryExecutor(sim)
+    sim.set_motion_validator(_validate_motion_safety)
     sim.add_step_callback(trajectory_executor.update)
     sim.add_telemetry_callback(_queue_broadcast)
 
@@ -135,6 +146,7 @@ async def lifespan(_: FastAPI):
         if trajectory_executor:
             trajectory_executor.stop()
         if sim:
+            sim.set_motion_validator(None)
             sim.cleanup()
         if current_session_id:
             SessionManager.end_session(current_session_id)
