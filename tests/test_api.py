@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+import backend.main as api_module
 from backend.main import app
 
 
@@ -116,3 +117,28 @@ def test_deleting_an_inactive_safety_zone_returns_not_found():
     assert created.status_code == 200
     assert deleted.status_code == 200
     assert deleted_again.status_code == 404
+
+
+def test_telemetry_recording_is_throttled(monkeypatch):
+    recorded = []
+    monkeypatch.setattr(api_module, "current_session_id", 42)
+    monkeypatch.setattr(api_module, "_telemetry_sample_count", 0)
+    monkeypatch.setattr(
+        api_module.SessionManager,
+        "log_telemetry",
+        lambda *values: recorded.append(values),
+    )
+    sample = {
+        "sim_time": 1.25,
+        "joint_angles": [0.0] * 7,
+        "joint_velocities": [0.0] * 7,
+        "joint_torques": [0.0] * 7,
+        "end_effector_pos": [0.0, 0.0, 1.0],
+        "end_effector_orn": [0.0, 0.0, 0.0, 1.0],
+    }
+
+    for _ in range(api_module.settings.telemetry_log_interval):
+        api_module._record_telemetry(sample)
+
+    assert len(recorded) == 1
+    assert recorded[0][0:2] == (42, 1.25)

@@ -36,6 +36,7 @@ control_mode = "manual"
 
 _broadcast_queue: asyncio.Queue | None = None
 _event_loop: asyncio.AbstractEventLoop | None = None
+_telemetry_sample_count = 0
 
 
 def _enqueue_latest(data: dict) -> None:
@@ -55,6 +56,30 @@ def _queue_broadcast(data: dict) -> None:
         _event_loop.call_soon_threadsafe(
             _enqueue_latest, {**data, "control_mode": control_mode}
         )
+
+
+def _record_telemetry(data: dict) -> None:
+    """Persist a throttled telemetry sample for the active session."""
+    global _telemetry_sample_count
+    _telemetry_sample_count += 1
+    if (
+        current_session_id is None
+        or _telemetry_sample_count % settings.telemetry_log_interval != 0
+    ):
+        return
+
+    try:
+        SessionManager.log_telemetry(
+            current_session_id,
+            data["sim_time"],
+            data["joint_angles"],
+            data.get("joint_velocities"),
+            data.get("joint_torques"),
+            data.get("end_effector_pos"),
+            data.get("end_effector_orn"),
+        )
+    except (KeyError, TypeError, ValueError):
+        logger.exception("Unable to persist telemetry sample")
 
 
 async def _broadcast_loop() -> None:
@@ -78,7 +103,7 @@ async def _broadcast_loop() -> None:
 async def lifespan(_: FastAPI):
     """Initialize and cleanly shut down the simulation and background tasks."""
     global sim, kinematics, trajectory_planner, trajectory_executor
-    global current_session_id, _broadcast_queue, _event_loop
+    global current_session_id, _broadcast_queue, _event_loop, _telemetry_sample_count
 
     init_db()
     _event_loop = asyncio.get_running_loop()
@@ -95,6 +120,8 @@ async def lifespan(_: FastAPI):
     sim.add_telemetry_callback(_queue_broadcast)
 
     current_session_id = SessionManager.create_session("Automatic session", control_mode)
+    _telemetry_sample_count = 0
+    sim.add_telemetry_callback(_record_telemetry)
     sim.start_loop(real_time=True)
     logger.info(
         "Simulation started: %s (%s joints)",
