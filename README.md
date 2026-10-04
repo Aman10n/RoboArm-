@@ -27,9 +27,10 @@ RoboArm AI is a full-stack robotics simulation workspace for a KUKA LBR iiwa-ins
 | Area | Capabilities |
 | --- | --- |
 | Digital twin | Interactive orbit camera, real-time link geometry, workspace objects, IK target marker, and safety-zone visualization |
-| Motion | Direct 7-axis control, joint-limit clamping, preset poses, damped least-squares IK, and linear/cubic/quintic paths |
-| Telemetry | 30 Hz WebSocket stream with position, velocity, torque, end-effector pose, and simulation state |
-| Backend | 240 Hz pure-Python PD simulation, validated REST API, OpenAPI docs, SQLite session metadata, and latched emergency stop |
+| Motion | Direct 7-axis control, joint-limit clamping, preset poses, damped least-squares IK, multi-point paths, and linear/cubic/quintic planning |
+| Safety | Latched emergency stop, enforced keep-in/keep-out zones, trajectory preflight, and live boundary alerts |
+| Telemetry | 30 Hz WebSocket stream with position, velocity, torque, end-effector pose, connection latency, and persistent session samples |
+| Backend | 240 Hz pure-Python PD simulation, validated REST/WebSocket commands, readiness checks, OpenAPI docs, and SQLite persistence |
 | Developer experience | One-command launcher, Docker deployment, environment-based configuration, automated tests, dependency updates, and GitHub Actions CI |
 
 ## Architecture
@@ -135,6 +136,7 @@ Copy `.env.example` values into your environment as needed.
 | `ROBOARM_ALLOWED_ORIGINS` | Comma-separated browser origins accepted by the API | Local Vite origins |
 | `ROBOARM_DB_PATH` | SQLite database path | `data/roboarm.db` |
 | `ROBOARM_STATIC_DIR` | Optional built frontend directory served by FastAPI | Disabled |
+| `ROBOARM_TELEMETRY_LOG_INTERVAL` | Persist one sample for every N telemetry frames | `8` |
 | `VITE_API_URL` | Optional REST base URL for a separately deployed backend | Same origin / Vite proxy |
 | `VITE_WS_URL` | Optional complete telemetry WebSocket URL | Derived from the current origin |
 
@@ -145,11 +147,17 @@ The full, interactive contract is available in Swagger UI at `/docs`.
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | `GET` | `/api/status` | Simulation, session, and connection status |
+| `GET` | `/api/ready` | Database and simulator readiness |
 | `GET` | `/api/robot` | Robot metadata and joint limits |
 | `POST` | `/api/joints/set` | Command all seven joint targets |
 | `POST` | `/api/ik` | Solve and command a Cartesian target |
 | `POST` | `/api/trajectory/plan` | Generate a joint-space trajectory |
 | `POST` | `/api/trajectory/execute` | Execute a time-aware trajectory |
+| `POST` | `/api/trajectory/multi/execute` | Execute a validated multi-point path |
+| `GET` | `/api/trajectory/status` | Inspect live execution progress and outcome |
+| `POST` | `/api/trajectory/stop` | Stop the active trajectory safely |
+| `GET/POST` | `/api/safety-zones` | List or create workspace safety zones |
+| `GET` | `/api/sessions` | List persisted simulation sessions |
 | `POST` | `/api/emergency-stop` | Latch the arm at its current position |
 | `WS` | `/ws/telemetry` | Stream state and accept low-latency commands |
 
@@ -200,9 +208,9 @@ RoboArm-/
 ## Roadmap
 
 - Orientation-aware inverse kinematics
-- Enforced keep-in and keep-out safety zones
 - Recorded trajectory playback and export
+- Geometric collision detection for workspace objects
 - Task-level policies and reinforcement-learning experiments
 - Optional ROS 2 and hardware adapter layers
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow and [SECURITY.md](SECURITY.md) for responsible vulnerability reporting.
+See [CHANGELOG.md](CHANGELOG.md) for release history. Contributions are welcome; read [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow and [SECURITY.md](SECURITY.md) for responsible vulnerability reporting.
