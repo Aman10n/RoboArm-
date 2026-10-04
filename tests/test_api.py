@@ -234,3 +234,21 @@ def test_trajectory_execution_preflights_safety_zones():
     assert response.status_code == 409
     assert "waypoint 1" in response.json()["detail"]
     assert mode.json() == {"mode": "manual"}
+
+
+def test_multi_point_trajectory_can_be_executed():
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/trajectory/multi/execute",
+            json={
+                "via_points": [[0.0] * 7, [0.1] * 7, [0.0] * 7],
+                "segment_duration": 1.0,
+                "num_points_per_segment": 10,
+            },
+        )
+        status = client.get("/api/trajectory/status")
+        client.post("/api/trajectory/stop")
+
+    assert response.status_code == 200
+    assert response.json()["trajectory"]["num_segments"] == 2
+    assert status.json()["state"] == "executing"

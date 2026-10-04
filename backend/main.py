@@ -485,6 +485,10 @@ async def execute_trajectory(req: TrajectoryRequest):
 
 @app.post("/api/trajectory/multi", tags=["trajectory"])
 async def plan_multi_trajectory(req: MultiTrajectoryRequest):
+    return _plan_multi_trajectory(req)
+
+
+def _plan_multi_trajectory(req: MultiTrajectoryRequest) -> dict:
     if not trajectory_planner:
         raise HTTPException(status_code=503, detail="Trajectory planner is not initialized")
     try:
@@ -493,6 +497,20 @@ async def plan_multi_trajectory(req: MultiTrajectoryRequest):
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/trajectory/multi/execute", tags=["trajectory"])
+async def execute_multi_trajectory(req: MultiTrajectoryRequest):
+    if not trajectory_executor:
+        raise HTTPException(status_code=503, detail="Trajectory executor is not initialized")
+    trajectory = _plan_multi_trajectory(req)
+    _preflight_trajectory_safety(trajectory)
+    _set_control_mode("playback")
+    trajectory_executor.load_trajectory(
+        trajectory, on_complete=lambda: _set_control_mode("manual")
+    )
+    trajectory_executor.start()
+    return {"success": True, "trajectory": trajectory}
 
 
 @app.post("/api/trajectory/stop", tags=["trajectory"])
