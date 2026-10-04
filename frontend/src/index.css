@@ -1,0 +1,26 @@
+html {
+  color-scheme: dark;
+  background: #07101d;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100dvh;
+  background: #07101d;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(54, 194, 255, 0.28);
+  color: #ffffff;
+}
