@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { apiRequest } from '../api'
 import { useAppContext } from '../AppContext'
+import TrajectoryMonitor from './TrajectoryMonitor'
 
 const PRESET_POSES = [
   { name: 'Home', angles: [0, 0, 0, 0, 0, 0, 0] },
@@ -179,6 +180,8 @@ export default function ControlPanel() {
           ))}
         </div>
       </section>
+
+      <TrajectoryMonitor />
 
       <section className="card">
         <div className="card-header">
