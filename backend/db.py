@@ -134,6 +134,15 @@ def init_db():
             trajectory TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE INDEX IF NOT EXISTS idx_sessions_created_at
+            ON sessions(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_telemetry_session_timestamp
+            ON telemetry_logs(session_id, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_collisions_session_timestamp
+            ON collision_events(session_id, timestamp);
+        CREATE INDEX IF NOT EXISTS idx_safety_zones_active_name
+            ON safety_zones(active, name);
         """)
 
 
