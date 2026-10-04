@@ -24,13 +24,15 @@ class TrajectoryPlanner:
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         if len(start_angles) != self.sim.num_joints or len(end_angles) != self.sim.num_joints:
             raise ValueError(f"Trajectories require {self.sim.num_joints} joint angles")
-        if duration <= 0:
+        if not np.isfinite(duration) or duration <= 0:
             raise ValueError("Trajectory duration must be positive")
         if num_points < 2:
             raise ValueError("A trajectory requires at least two points")
 
         start = np.asarray(start_angles, dtype=float)
         end = np.asarray(end_angles, dtype=float)
+        if not np.all(np.isfinite(start)) or not np.all(np.isfinite(end)):
+            raise ValueError("Trajectory angles must be finite numbers")
         timestamps = np.linspace(0.0, duration, num_points)
         normalized_time = timestamps / duration
         return start, end, timestamps, normalized_time

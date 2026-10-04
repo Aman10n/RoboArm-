@@ -7,11 +7,16 @@ import json
 import logging
 import os
 from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, model_validator
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field, FiniteFloat, model_validator
 
 from backend.db import SafetyZoneManager, SessionManager, init_db
 from backend.simulation.env import RoboArmSimulation, get_simulation
@@ -120,9 +125,19 @@ app = FastAPI(
         "Control a mathematical KUKA LBR iiwa-inspired model, solve forward and "
         "inverse kinematics, and generate smooth joint-space trajectories."
     ),
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(_, exc: RequestValidationError):
+    """Return JSON-safe validation details without echoing untrusted values."""
+    errors = []
+    for error in exc.errors():
+        sanitized = {key: value for key, value in error.items() if key != "input"}
+        errors.append(sanitized)
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(errors)})
 
 allowed_origins = [
     origin.strip()
@@ -142,33 +157,33 @@ app.add_middleware(
 
 
 class JointAnglesRequest(BaseModel):
-    angles: list[float] = Field(min_length=7, max_length=7)
-    force: float | None = Field(default=None, gt=0)
+    angles: list[FiniteFloat] = Field(min_length=7, max_length=7)
+    force: FiniteFloat | None = Field(default=None, gt=0)
 
 
 class SingleJointRequest(BaseModel):
     joint_index: int = Field(ge=0, lt=7)
-    angle: float
-    force: float | None = Field(default=None, gt=0)
+    angle: FiniteFloat
+    force: FiniteFloat | None = Field(default=None, gt=0)
 
 
 class IKRequest(BaseModel):
-    target_position: list[float] = Field(min_length=3, max_length=3)
-    target_orientation: list[float] | None = Field(
+    target_position: list[FiniteFloat] = Field(min_length=3, max_length=3)
+    target_orientation: list[FiniteFloat] | None = Field(
         default=None, min_length=4, max_length=4
     )
 
 
 class TrajectoryRequest(BaseModel):
-    target_angles: list[float] = Field(min_length=7, max_length=7)
-    duration: float = Field(default=2.0, gt=0, le=60)
+    target_angles: list[FiniteFloat] = Field(min_length=7, max_length=7)
+    duration: FiniteFloat = Field(default=2.0, gt=0, le=60)
     method: Literal["linear", "cubic", "quintic"] = "quintic"
     num_points: int = Field(default=100, ge=2, le=10_000)
 
 
 class MultiTrajectoryRequest(BaseModel):
-    via_points: list[list[float]] = Field(min_length=2, max_length=100)
-    segment_duration: float = Field(default=1.5, gt=0, le=60)
+    via_points: list[list[FiniteFloat]] = Field(min_length=2, max_length=100)
+    segment_duration: FiniteFloat = Field(default=1.5, gt=0, le=60)
     num_points_per_segment: int = Field(default=50, ge=2, le=10_000)
 
     @model_validator(mode="after")
@@ -181,16 +196,16 @@ class MultiTrajectoryRequest(BaseModel):
 class WorkspaceObjectRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80, pattern=r"^[\w -]+$")
     shape: Literal["box", "sphere", "cylinder"] = "box"
-    position: list[float] = Field(
+    position: list[FiniteFloat] = Field(
         default_factory=lambda: [0.5, 0.0, 0.05], min_length=3, max_length=3
     )
-    size: list[float] = Field(
+    size: list[FiniteFloat] = Field(
         default_factory=lambda: [0.05, 0.05, 0.05], min_length=3, max_length=3
     )
-    color: list[float] = Field(
+    color: list[FiniteFloat] = Field(
         default_factory=lambda: [1.0, 0.0, 0.0, 1.0], min_length=4, max_length=4
     )
-    mass: float = Field(default=0.1, ge=0)
+    mass: FiniteFloat = Field(default=0.1, ge=0)
 
     @model_validator(mode="after")
     def validate_object(self):
@@ -204,8 +219,8 @@ class WorkspaceObjectRequest(BaseModel):
 class SafetyZoneRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     zone_type: Literal["keep_in", "keep_out"]
-    min_bounds: list[float] = Field(min_length=3, max_length=3)
-    max_bounds: list[float] = Field(min_length=3, max_length=3)
+    min_bounds: list[FiniteFloat] = Field(min_length=3, max_length=3)
+    max_bounds: list[FiniteFloat] = Field(min_length=3, max_length=3)
     color: str = Field(default="#ff000080", pattern=r"^#[0-9a-fA-F]{8}$")
 
     @model_validator(mode="after")
@@ -379,6 +394,7 @@ async def plan_multi_trajectory(req: MultiTrajectoryRequest):
 async def stop_trajectory():
     if trajectory_executor:
         trajectory_executor.stop()
+    _set_control_mode("manual")
     return {"success": True}
 
 
@@ -389,9 +405,12 @@ async def trajectory_status():
 
 @app.post("/api/objects/add", tags=["workspace"])
 async def add_object(req: WorkspaceObjectRequest):
-    object_id = _require_simulation().add_workspace_object(
-        req.name, req.shape, req.position, req.size, req.color, req.mass
-    )
+    try:
+        object_id = _require_simulation().add_workspace_object(
+            req.name, req.shape, req.position, req.size, req.color, req.mass
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"success": True, "object_id": object_id, "name": req.name}
 
 
@@ -423,7 +442,8 @@ async def list_safety_zones():
 
 @app.delete("/api/safety-zones/{zone_id}", tags=["safety"])
 async def delete_safety_zone(zone_id: int):
-    SafetyZoneManager.delete_zone(zone_id)
+    if not SafetyZoneManager.delete_zone(zone_id):
+        raise HTTPException(status_code=404, detail="Safety zone not found")
     return {"success": True}
 
 
@@ -541,6 +561,24 @@ async def _handle_ws_command(message: dict, websocket: WebSocket) -> None:
         raise ValueError(f"Unknown command: {command}")
 
     await websocket.send_text(json.dumps({"type": "ack", "command": command}))
+
+
+def _mount_production_frontend() -> None:
+    """Serve a pre-built frontend when a deployment directory is configured."""
+    static_setting = os.getenv("ROBOARM_STATIC_DIR", "").strip()
+    if not static_setting:
+        return
+
+    static_dir = Path(static_setting).expanduser().resolve()
+    if not static_dir.is_dir():
+        logger.warning("ROBOARM_STATIC_DIR does not exist: %s", static_dir)
+        return
+
+    app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend")
+    logger.info("Serving the production frontend from %s", static_dir)
+
+
+_mount_production_frontend()
 
 
 if __name__ == "__main__":

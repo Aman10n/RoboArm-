@@ -259,6 +259,21 @@ button {
   backdrop-filter: blur(12px);
 }
 
+.viewer-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background:
+    radial-gradient(circle at 50% 55%, rgba(54, 194, 255, 0.08), transparent 34%),
+    var(--bg);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
 .viewer-offline span {
   width: 7px;
   height: 7px;

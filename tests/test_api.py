@@ -39,3 +39,61 @@ def test_websocket_sends_metadata_and_telemetry():
     assert metadata["data"]["num_joints"] == 7
     assert telemetry["type"] == "telemetry"
     assert len(telemetry["data"]["joint_angles"]) == 7
+
+
+def test_non_finite_motion_values_are_rejected():
+    payload = '{"angles":[NaN,0,0,0,0,0,0]}'
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/joints/set",
+            content=payload,
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 422
+
+
+def test_workspace_object_names_cannot_be_overwritten():
+    payload = {
+        "name": "fixture",
+        "shape": "box",
+        "position": [0.4, 0.0, 0.05],
+        "size": [0.1, 0.1, 0.1],
+        "color": [0.2, 0.6, 0.9, 1.0],
+        "mass": 0.1,
+    }
+    with TestClient(app) as client:
+        created = client.post("/api/objects/add", json=payload)
+        duplicate = client.post("/api/objects/add", json=payload)
+
+    assert created.status_code == 200
+    assert duplicate.status_code == 409
+    assert "already exists" in duplicate.json()["detail"]
+
+
+def test_stopping_trajectory_returns_to_manual_mode():
+    with TestClient(app) as client:
+        client.post("/api/mode/playback")
+        stopped = client.post("/api/trajectory/stop")
+        mode = client.get("/api/mode")
+
+    assert stopped.status_code == 200
+    assert mode.json() == {"mode": "manual"}
+
+
+def test_deleting_an_inactive_safety_zone_returns_not_found():
+    payload = {
+        "name": "temporary-zone",
+        "zone_type": "keep_out",
+        "min_bounds": [-0.1, -0.1, 0.0],
+        "max_bounds": [0.1, 0.1, 0.2],
+    }
+    with TestClient(app) as client:
+        created = client.post("/api/safety-zones", json=payload)
+        zone_id = created.json()["zone_id"]
+        deleted = client.delete(f"/api/safety-zones/{zone_id}")
+        deleted_again = client.delete(f"/api/safety-zones/{zone_id}")
+
+    assert created.status_code == 200
+    assert deleted.status_code == 200
+    assert deleted_again.status_code == 404

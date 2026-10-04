@@ -4,10 +4,12 @@ Handles session recording, telemetry logs, collision events, and training runs.
 """
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent.parent / "data" / "roboarm.db"
+DEFAULT_DB_PATH = Path(__file__).parent.parent / "data" / "roboarm.db"
+DB_PATH = Path(os.getenv("ROBOARM_DB_PATH", DEFAULT_DB_PATH)).expanduser().resolve()
 
 
 def _row_to_dict(row, json_fields=()):
@@ -25,6 +27,7 @@ def get_connection():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -259,11 +262,15 @@ class SafetyZoneManager:
         return [dict(r) for r in rows]
 
     @staticmethod
-    def delete_zone(zone_id: int):
+    def delete_zone(zone_id: int) -> bool:
         conn = get_connection()
-        conn.execute("UPDATE safety_zones SET active = 0 WHERE id = ?", (zone_id,))
+        cursor = conn.execute(
+            "UPDATE safety_zones SET active = 0 WHERE id = ? AND active = 1",
+            (zone_id,),
+        )
         conn.commit()
         conn.close()
+        return cursor.rowcount > 0
 
     @staticmethod
     def check_position(position: list) -> list:

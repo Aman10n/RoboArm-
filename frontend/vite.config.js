@@ -20,6 +20,22 @@ export default defineConfig({
     port: 4173,
   },
   build: {
-    chunkSizeWarningLimit: 1200,
+    // The WebGL runtime is isolated from the 20 kB application entry chunk.
+    // Its minified size is expected because Three.js and drei ship together.
+    chunkSizeWarningLimit: 950,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          const normalizedId = id.replaceAll('\\', '/')
+          if (normalizedId.includes('@react-three')) return 'react-three'
+          if (normalizedId.includes('/three/')) return 'three'
+          if (normalizedId.includes('/react/') || normalizedId.includes('/react-dom/')) {
+            return 'react'
+          }
+          return 'vendor'
+        },
+      },
+    },
   },
 })

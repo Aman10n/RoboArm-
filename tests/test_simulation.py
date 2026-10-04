@@ -84,3 +84,21 @@ def test_executor_advances_using_elapsed_simulation_time(simulation):
     assert executor.get_status()["state"] == "completed"
     assert simulation.target_angles == pytest.approx([0.4] * 7)
     assert completed == [True]
+
+
+def test_trajectory_rejects_non_finite_angles(simulation):
+    planner = TrajectoryPlanner(simulation)
+
+    with pytest.raises(ValueError, match="finite"):
+        planner.quintic_polynomial([0.0] * 7, [math.inf] * 7, 2.0, 20)
+
+
+def test_workspace_objects_are_unique_and_returned_as_snapshots(simulation):
+    simulation.add_workspace_object("fixture", position=[0.4, 0.0, 0.05])
+
+    with pytest.raises(ValueError, match="already exists"):
+        simulation.add_workspace_object("fixture")
+
+    snapshot = simulation.get_workspace_objects()
+    snapshot["fixture"]["position"][0] = 99
+    assert simulation.get_workspace_objects()["fixture"]["position"][0] == 0.4

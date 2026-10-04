@@ -30,7 +30,7 @@ RoboArm AI is a full-stack robotics simulation workspace for a KUKA LBR iiwa-ins
 | Motion | Direct 7-axis control, joint-limit clamping, preset poses, damped least-squares IK, and linear/cubic/quintic paths |
 | Telemetry | 30 Hz WebSocket stream with position, velocity, torque, end-effector pose, and simulation state |
 | Backend | 240 Hz pure-Python PD simulation, validated REST API, OpenAPI docs, SQLite session metadata, and latched emergency stop |
-| Developer experience | One-command launcher, environment-based configuration, automated tests, linting, production build checks, and GitHub Actions CI |
+| Developer experience | One-command launcher, Docker deployment, environment-based configuration, automated tests, dependency updates, and GitHub Actions CI |
 
 ## Architecture
 
@@ -116,6 +116,16 @@ cd frontend
 npm run dev
 ```
 
+### Run with Docker
+
+Build and start the production image with the frontend and API served together on one port:
+
+```bash
+docker compose up --build
+```
+
+Open <http://localhost:8000>. The named `roboarm-data` volume preserves SQLite data across container restarts. Stop the service with `docker compose down`; add `--volumes` only when you intentionally want to remove that data.
+
 ## Configuration
 
 Copy `.env.example` values into your environment as needed.
@@ -123,6 +133,8 @@ Copy `.env.example` values into your environment as needed.
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `ROBOARM_ALLOWED_ORIGINS` | Comma-separated browser origins accepted by the API | Local Vite origins |
+| `ROBOARM_DB_PATH` | SQLite database path | `data/roboarm.db` |
+| `ROBOARM_STATIC_DIR` | Optional built frontend directory served by FastAPI | Disabled |
 | `VITE_API_URL` | Optional REST base URL for a separately deployed backend | Same origin / Vite proxy |
 | `VITE_WS_URL` | Optional complete telemetry WebSocket URL | Derived from the current origin |
 
@@ -178,7 +190,9 @@ RoboArm-/
 │       └── trajectory.py       # Planners and executor
 ├── frontend/
 │   └── src/                    # React controls, analytics, and 3D viewer
-├── tests/                      # Simulation and trajectory tests
+├── tests/                      # Simulation and API tests
+├── Dockerfile                  # Multi-stage production image
+├── compose.yaml                # Container runtime and persistent data
 ├── run.py                      # Local multi-service launcher
 └── setup.py                    # Database and directory initialization
 ```

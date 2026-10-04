@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiRequest } from './api'
 import { AppContext } from './AppContext'
 import { getWebSocketUrl } from './config'
 import ControlPanel from './components/ControlPanel'
 import Dashboard from './components/Dashboard'
-import Viewer3D from './components/Viewer3D'
 import './App.css'
 
 const MAX_HISTORY_SAMPLES = 200
+const Viewer3D = lazy(() => import('./components/Viewer3D'))
 
 function App() {
   const [connected, setConnected] = useState(false)
@@ -218,7 +218,9 @@ function App() {
 
         <main className="app-main">
           <section className="viewer-container" aria-label="Interactive robot view">
-            <Viewer3D />
+            <Suspense fallback={<div className="viewer-loading">Loading 3D workspace&hellip;</div>}>
+              <Viewer3D />
+            </Suspense>
             <div className="viewer-kicker">LIVE DIGITAL TWIN</div>
             <div className="viewer-overlay-bottom">
               <div className="coordinate-readout">

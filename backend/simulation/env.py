@@ -4,6 +4,7 @@ import math
 import threading
 import time
 from collections.abc import Callable
+from copy import deepcopy
 
 import numpy as np
 
@@ -398,10 +399,6 @@ class RoboArmSimulation:
 
     def set_joint_angles(self, angles: list, force: float = None):
         """Set target joint angles."""
-        if self.emergency_stopped:
-            raise ValueError(
-                "Emergency stop is engaged; reset the robot before commanding motion"
-            )
         if len(angles) != self.num_joints:
             raise ValueError(f"Expected {self.num_joints} angles, got {len(angles)}")
 
@@ -412,20 +409,24 @@ class RoboArmSimulation:
             clamped.append(max(lower, min(upper, float(angle))))
 
         with self.lock:
+            if self.emergency_stopped:
+                raise ValueError(
+                    "Emergency stop is engaged; reset the robot before commanding motion"
+                )
             self.target_angles = clamped
 
     def set_single_joint(self, joint_index: int, angle: float, force: float = None):
         """Set a single joint's target angle."""
-        if self.emergency_stopped:
-            raise ValueError(
-                "Emergency stop is engaged; reset the robot before commanding motion"
-            )
         if not 0 <= joint_index < self.num_joints:
             raise ValueError(f"Joint index must be between 0 and {self.num_joints - 1}")
         lower = self.joint_limits[joint_index]['lower']
         upper = self.joint_limits[joint_index]['upper']
         angle = max(lower, min(upper, float(angle)))
         with self.lock:
+            if self.emergency_stopped:
+                raise ValueError(
+                    "Emergency stop is engaged; reset the robot before commanding motion"
+                )
             self.target_angles[joint_index] = angle
 
     def step(self):
@@ -473,32 +474,37 @@ class RoboArmSimulation:
     def add_workspace_object(self, name, shape="box", position=None,
                              size=None, color=None, mass=0.1):
         """Add an object to the workspace."""
-        self._object_counter += 1
         position = position or [0.5, 0, 0.05]
         size = size or [0.05, 0.05, 0.05]
         color = color or [1, 0, 0, 1]
 
-        self.workspace_objects[name] = {
-            'id': self._object_counter,
-            'shape': shape,
-            'position': [float(x) for x in position],
-            'size': [float(x) for x in size],
-            'color': [float(x) for x in color],
-            'mass': float(mass),
-            'orientation': [0, 0, 0, 1]
-        }
-        return self._object_counter
+        with self.lock:
+            if name in self.workspace_objects:
+                raise ValueError(f"Workspace object '{name}' already exists")
+            self._object_counter += 1
+            self.workspace_objects[name] = {
+                'id': self._object_counter,
+                'shape': shape,
+                'position': [float(x) for x in position],
+                'size': [float(x) for x in size],
+                'color': [float(x) for x in color],
+                'mass': float(mass),
+                'orientation': [0, 0, 0, 1]
+            }
+            return self._object_counter
 
     def remove_workspace_object(self, name):
         """Remove a workspace object."""
-        if name in self.workspace_objects:
-            del self.workspace_objects[name]
-            return True
-        return False
+        with self.lock:
+            if name in self.workspace_objects:
+                del self.workspace_objects[name]
+                return True
+            return False
 
     def get_workspace_objects(self):
         """Get all workspace objects."""
-        return dict(self.workspace_objects)
+        with self.lock:
+            return deepcopy(self.workspace_objects)
 
     def reset(self):
         """Reset to home position."""

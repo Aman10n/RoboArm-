@@ -1,0 +1,11 @@
+services:
+  roboarm:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - roboarm-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  roboarm-data:
