@@ -124,3 +124,34 @@ def test_motion_validator_runs_before_target_is_updated(simulation):
         simulation.set_joint_angles([0.2] * 7)
 
     assert simulation.target_angles == [0.0] * 7
+
+
+def test_executor_reports_motion_validation_failure(simulation):
+    planner = TrajectoryPlanner(simulation)
+    executor = TrajectoryExecutor(simulation)
+    finished = []
+    trajectory = planner.linear_interpolation([0.0] * 7, [0.2] * 7, 1.0, 5)
+    executor.load_trajectory(trajectory, on_complete=lambda: finished.append(True))
+    executor.start()
+    simulation.set_motion_validator(lambda _: (_ for _ in ()).throw(ValueError("blocked")))
+
+    result = executor.update(0.25)
+    status = executor.get_status()
+
+    assert result["error"] == "blocked"
+    assert status["state"] == "failed"
+    assert status["failure_reason"] == "blocked"
+    assert finished == [True]
+
+
+def test_executor_distinguishes_operator_stop(simulation):
+    planner = TrajectoryPlanner(simulation)
+    executor = TrajectoryExecutor(simulation)
+    executor.load_trajectory(
+        planner.linear_interpolation([0.0] * 7, [0.2] * 7, 1.0, 5)
+    )
+    executor.start()
+
+    executor.stop()
+
+    assert executor.get_status()["state"] == "stopped"

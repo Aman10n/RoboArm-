@@ -191,6 +191,8 @@ class TrajectoryExecutor:
         self.elapsed = 0.0
         self.is_executing = False
         self.completed = False
+        self.stopped = False
+        self.failure_reason: str | None = None
         self.on_complete: Callable[[], None] | None = None
         self._lock = RLock()
 
@@ -206,6 +208,8 @@ class TrajectoryExecutor:
             self.elapsed = 0.0
             self.is_executing = False
             self.completed = False
+            self.stopped = False
+            self.failure_reason = None
             self.on_complete = on_complete
 
     def start(self) -> None:
@@ -216,11 +220,15 @@ class TrajectoryExecutor:
             self.current_index = 0
             self.elapsed = 0.0
             self.completed = False
+            self.stopped = False
+            self.failure_reason = None
             self.is_executing = True
 
     def stop(self) -> None:
         """Stop execution while retaining progress for inspection."""
         with self._lock:
+            if self.is_executing:
+                self.stopped = True
             self.is_executing = False
 
     def update(self, dt: float):
@@ -239,7 +247,22 @@ class TrajectoryExecutor:
             )
             self.current_index = waypoint_index + 1
             target = waypoints[waypoint_index]
-            self.sim.set_joint_angles(target)
+            try:
+                self.sim.set_joint_angles(target)
+            except ValueError as exc:
+                self.is_executing = False
+                self.failure_reason = str(exc)
+                callback = self.on_complete
+                result = {
+                    "waypoint": target,
+                    "index": self.current_index,
+                    "total": len(waypoints),
+                    "progress": self.current_index / len(waypoints),
+                    "error": self.failure_reason,
+                }
+                if callback:
+                    callback()
+                return result
 
             if self.elapsed >= timestamps[-1]:
                 self.sim.set_joint_angles(waypoints[-1])
@@ -266,7 +289,16 @@ class TrajectoryExecutor:
                 return {"state": "idle", "progress": 0.0}
 
             total = len(self.current_trajectory["waypoints"])
-            state = "executing" if self.is_executing else "completed" if self.completed else "ready"
+            if self.is_executing:
+                state = "executing"
+            elif self.failure_reason:
+                state = "failed"
+            elif self.completed:
+                state = "completed"
+            elif self.stopped:
+                state = "stopped"
+            else:
+                state = "ready"
             return {
                 "state": state,
                 "current_index": self.current_index,
@@ -274,4 +306,5 @@ class TrajectoryExecutor:
                 "progress": self.current_index / total if total else 0.0,
                 "elapsed": self.elapsed,
                 "duration": self.current_trajectory.get("duration", 0.0),
+                "failure_reason": self.failure_reason,
             }
