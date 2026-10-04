@@ -37,6 +37,7 @@ control_mode = "manual"
 _broadcast_queue: asyncio.Queue | None = None
 _event_loop: asyncio.AbstractEventLoop | None = None
 _telemetry_sample_count = 0
+_active_safety_zones: list[dict] = []
 
 
 def _enqueue_latest(data: dict) -> None:
@@ -53,9 +54,28 @@ def _enqueue_latest(data: dict) -> None:
 def _queue_broadcast(data: dict) -> None:
     """Safely hand telemetry from the simulation thread to the API loop."""
     if _event_loop and _event_loop.is_running():
-        _event_loop.call_soon_threadsafe(
-            _enqueue_latest, {**data, "control_mode": control_mode}
-        )
+        _event_loop.call_soon_threadsafe(_enqueue_latest, _decorate_telemetry(data))
+
+
+def _decorate_telemetry(data: dict) -> dict:
+    """Add API-owned operating state to a simulator telemetry sample."""
+    position = data.get("end_effector_pos", [])
+    violations = (
+        SafetyZoneManager.check_position(position, _active_safety_zones)
+        if len(position) == 3
+        else []
+    )
+    return {
+        **data,
+        "control_mode": control_mode,
+        "safety_violations": violations,
+    }
+
+
+def _refresh_safety_zones() -> list[dict]:
+    global _active_safety_zones
+    _active_safety_zones = SafetyZoneManager.get_zones()
+    return _active_safety_zones
 
 
 def _record_telemetry(data: dict) -> None:
@@ -86,7 +106,7 @@ def _validate_motion_safety(angles: list[float]) -> None:
     """Reject targets whose tool-center point violates an active safety zone."""
     active_sim = _require_simulation()
     position = active_sim.robot.get_end_effector(angles)["position"]
-    violations = SafetyZoneManager.check_position(position)
+    violations = SafetyZoneManager.check_position(position, _active_safety_zones)
     if violations:
         messages = "; ".join(violation["message"] for violation in violations)
         raise ValueError(f"Motion target violates a safety zone: {messages}")
@@ -132,6 +152,7 @@ async def lifespan(_: FastAPI):
 
     current_session_id = SessionManager.create_session("Automatic session", control_mode)
     _telemetry_sample_count = 0
+    _refresh_safety_zones()
     sim.add_telemetry_callback(_record_telemetry)
     sim.start_loop(real_time=True)
     logger.info(
@@ -497,6 +518,7 @@ async def create_safety_zone(req: SafetyZoneRequest):
     zone_id = SafetyZoneManager.create_zone(
         req.name, req.zone_type, req.min_bounds, req.max_bounds, req.color
     )
+    _refresh_safety_zones()
     return {"success": True, "zone_id": zone_id}
 
 
@@ -509,6 +531,7 @@ async def list_safety_zones():
 async def delete_safety_zone(zone_id: int):
     if not SafetyZoneManager.delete_zone(zone_id):
         raise HTTPException(status_code=404, detail="Safety zone not found")
+    _refresh_safety_zones()
     return {"success": True}
 
 
@@ -569,7 +592,9 @@ async def websocket_telemetry(websocket: WebSocket):
     state = active_sim.get_joint_states()
     state["links"] = active_sim.get_link_states()
     state["objects"] = active_sim.get_workspace_objects()
-    await websocket.send_text(json.dumps({"type": "telemetry", "data": state}))
+    await websocket.send_text(
+        json.dumps({"type": "telemetry", "data": _decorate_telemetry(state)})
+    )
 
     try:
         while True:

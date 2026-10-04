@@ -311,9 +311,9 @@ class SafetyZoneManager:
             return cursor.rowcount > 0
 
     @staticmethod
-    def check_position(position: list) -> list:
+    def check_position(position: list, zones: list[dict] | None = None) -> list:
         """Check if a position violates any safety zones. Returns list of violations."""
-        zones = SafetyZoneManager.get_zones()
+        zones = SafetyZoneManager.get_zones() if zones is None else zones
         violations = []
         x, y, z = position
         for zone in zones:

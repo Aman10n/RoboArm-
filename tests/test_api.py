@@ -177,3 +177,27 @@ def test_keep_out_zone_blocks_motion_target():
     assert created.status_code == 200
     assert blocked.status_code == 409
     assert "safety zone" in blocked.json()["detail"]
+
+
+def test_telemetry_includes_current_safety_violations(monkeypatch):
+    monkeypatch.setattr(
+        api_module,
+        "_active_safety_zones",
+        [
+            {
+                "name": "tool-guard",
+                "zone_type": "keep_out",
+                "min_x": -0.1,
+                "min_y": -0.1,
+                "min_z": 0.5,
+                "max_x": 0.1,
+                "max_y": 0.1,
+                "max_z": 0.7,
+            }
+        ],
+    )
+
+    payload = api_module._decorate_telemetry({"end_effector_pos": [0.0, 0.0, 0.6]})
+
+    assert payload["control_mode"] == api_module.control_mode
+    assert payload["safety_violations"][0]["zone"] == "tool-guard"
