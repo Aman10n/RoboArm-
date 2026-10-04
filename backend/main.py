@@ -5,9 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from contextlib import asynccontextmanager, suppress
-from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -18,6 +16,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, FiniteFloat, model_validator
 
+from backend.config import settings
 from backend.db import SafetyZoneManager, SessionManager, init_db
 from backend.simulation.env import RoboArmSimulation, get_simulation
 from backend.simulation.kinematics import KinematicsEngine
@@ -119,13 +118,13 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="RoboArm AI API",
+    title=settings.app_name,
     summary="Real-time API for a 7-DOF robotic-arm digital twin",
     description=(
         "Control a mathematical KUKA LBR iiwa-inspired model, solve forward and "
         "inverse kinematics, and generate smooth joint-space trajectories."
     ),
-    version="1.1.0",
+    version=settings.app_version,
     lifespan=lifespan,
 )
 
@@ -139,17 +138,9 @@ async def validation_exception_handler(_, exc: RequestValidationError):
         errors.append(sanitized)
     return JSONResponse(status_code=422, content={"detail": jsonable_encoder(errors)})
 
-allowed_origins = [
-    origin.strip()
-    for origin in os.getenv(
-        "ROBOARM_ALLOWED_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173",
-    ).split(",")
-    if origin.strip()
-]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=list(settings.allowed_origins),
     allow_credentials=False,
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type"],
@@ -565,11 +556,10 @@ async def _handle_ws_command(message: dict, websocket: WebSocket) -> None:
 
 def _mount_production_frontend() -> None:
     """Serve a pre-built frontend when a deployment directory is configured."""
-    static_setting = os.getenv("ROBOARM_STATIC_DIR", "").strip()
-    if not static_setting:
+    static_dir = settings.static_directory
+    if static_dir is None:
         return
 
-    static_dir = Path(static_setting).expanduser().resolve()
     if not static_dir.is_dir():
         logger.warning("ROBOARM_STATIC_DIR does not exist: %s", static_dir)
         return

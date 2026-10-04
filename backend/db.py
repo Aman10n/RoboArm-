@@ -4,12 +4,11 @@ Handles session recording, telemetry logs, collision events, and training runs.
 """
 
 import json
-import os
 import sqlite3
-from pathlib import Path
 
-DEFAULT_DB_PATH = Path(__file__).parent.parent / "data" / "roboarm.db"
-DB_PATH = Path(os.getenv("ROBOARM_DB_PATH", DEFAULT_DB_PATH)).expanduser().resolve()
+from backend.config import settings
+
+DB_PATH = settings.database_path
 
 
 def _row_to_dict(row, json_fields=()):
