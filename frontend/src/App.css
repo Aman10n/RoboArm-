@@ -684,6 +684,46 @@ select.input { cursor: pointer; }
 .object-row button { border: 0; background: none; color: var(--muted); font-size: 16px; cursor: pointer; }
 .object-row button:hover { color: var(--red); }
 
+.safety-zone-row > span > span {
+  display: grid;
+  gap: 2px;
+}
+
+.safety-zone-row strong {
+  color: var(--text-soft);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.safety-zone-row small {
+  color: var(--muted);
+  font: 650 7px/1 var(--font-mono);
+  text-transform: uppercase;
+}
+
+.object-row i.keep_out { background: var(--red); }
+.object-row i.keep_in { background: var(--green); }
+
+.bounds-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+
+.bound-pair {
+  display: grid;
+  gap: 5px;
+}
+
+.bound-pair > span {
+  color: var(--muted);
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.bound-pair > div { display: grid; gap: 5px; }
+
 .object-form {
   display: grid;
   gap: 9px;

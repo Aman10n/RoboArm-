@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { apiRequest } from '../api'
 import { useAppContext } from '../AppContext'
+import SafetyZoneManager from './SafetyZoneManager'
 import TrajectoryMonitor from './TrajectoryMonitor'
 
 const PRESET_POSES = [
@@ -284,6 +285,8 @@ export default function ControlPanel() {
           <p className="empty-copy">No workspace objects in the current scene.</p>
         )}
       </section>
+
+      <SafetyZoneManager />
 
       <section className="safety-actions">
         <button className="btn btn-secondary" onClick={resetArm} disabled={!connected}>Reset system</button>
