@@ -116,6 +116,37 @@ def test_stopping_trajectory_returns_to_manual_mode():
     assert mode.json() == {"mode": "manual"}
 
 
+def test_motion_commands_require_manual_mode():
+    with TestClient(app) as client:
+        mode = client.post("/api/mode/playback")
+        joints = client.post("/api/joints/set", json={"angles": [0.0] * 7})
+        ik = client.post("/api/ik", json={"target_position": [0.0, 0.0, 0.6]})
+        trajectory = client.post(
+            "/api/trajectory/execute",
+            json={"target_angles": [0.1] * 7, "duration": 2.0},
+        )
+        client.post("/api/mode/manual")
+
+    assert mode.status_code == 200
+    assert joints.status_code == 409
+    assert ik.status_code == 409
+    assert trajectory.status_code == 409
+    assert "playback" in joints.json()["detail"]
+
+
+def test_emergency_stop_blocks_trajectory_start():
+    with TestClient(app) as client:
+        client.post("/api/emergency-stop")
+        response = client.post(
+            "/api/trajectory/execute",
+            json={"target_angles": [0.1] * 7, "duration": 2.0},
+        )
+        client.post("/api/reset")
+
+    assert response.status_code == 409
+    assert "Emergency stop" in response.json()["detail"]
+
+
 def test_deleting_an_inactive_safety_zone_returns_not_found():
     payload = {
         "name": "temporary-zone",

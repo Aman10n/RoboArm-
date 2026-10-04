@@ -354,6 +354,18 @@ def _require_simulation() -> RoboArmSimulation:
     return sim
 
 
+def _require_manual_motion() -> RoboArmSimulation:
+    """Return the simulator only when operator-driven motion is allowed."""
+    active_sim = _require_simulation()
+    if control_mode != "manual":
+        raise ValueError(
+            f"Manual motion is unavailable while control mode is '{control_mode}'"
+        )
+    if active_sim.emergency_stopped:
+        raise ValueError("Emergency stop is engaged; reset the robot before commanding motion")
+    return active_sim
+
+
 @app.get("/api/status", tags=["system"])
 async def get_status():
     active_sim = _require_simulation()
@@ -402,8 +414,8 @@ async def get_link_states():
 
 @app.post("/api/joints/set", tags=["robot"])
 async def set_joint_angles(req: JointAnglesRequest):
-    active_sim = _require_simulation()
     try:
+        active_sim = _require_manual_motion()
         active_sim.set_joint_angles(req.angles, req.force)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -412,8 +424,8 @@ async def set_joint_angles(req: JointAnglesRequest):
 
 @app.post("/api/joints/single", tags=["robot"])
 async def set_single_joint(req: SingleJointRequest):
-    active_sim = _require_simulation()
     try:
+        active_sim = _require_manual_motion()
         active_sim.set_single_joint(req.joint_index, req.angle, req.force)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -456,10 +468,14 @@ async def forward_kinematics_custom(req: JointAnglesRequest):
 async def inverse_kinematics_endpoint(req: IKRequest):
     if not kinematics:
         raise HTTPException(status_code=503, detail="Kinematics engine is not initialized")
+    try:
+        active_sim = _require_manual_motion()
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     result = kinematics.inverse_kinematics(req.target_position, req.target_orientation)
     if result["success"]:
         try:
-            _require_simulation().set_joint_angles(result["joint_angles"])
+            active_sim.set_joint_angles(result["joint_angles"])
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
     return result
@@ -517,6 +533,10 @@ async def plan_trajectory(req: TrajectoryRequest):
 async def execute_trajectory(req: TrajectoryRequest):
     if not trajectory_executor:
         raise HTTPException(status_code=503, detail="Trajectory executor is not initialized")
+    try:
+        _require_manual_motion()
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     trajectory = _plan_trajectory(req)
     _preflight_trajectory_safety(trajectory)
     _set_control_mode("playback")
@@ -547,6 +567,10 @@ def _plan_multi_trajectory(req: MultiTrajectoryRequest) -> dict:
 async def execute_multi_trajectory(req: MultiTrajectoryRequest):
     if not trajectory_executor:
         raise HTTPException(status_code=503, detail="Trajectory executor is not initialized")
+    try:
+        _require_manual_motion()
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     trajectory = _plan_multi_trajectory(req)
     _preflight_trajectory_safety(trajectory)
     _set_control_mode("playback")
@@ -704,12 +728,13 @@ async def _handle_ws_command(message: dict, websocket: WebSocket) -> None:
     command = payload.command
 
     if command == "set_joints":
-        active_sim.set_joint_angles(payload.angles)
+        _require_manual_motion().set_joint_angles(payload.angles)
     elif command == "set_single_joint":
-        active_sim.set_single_joint(payload.joint_index, payload.angle)
+        _require_manual_motion().set_single_joint(payload.joint_index, payload.angle)
     elif command == "ik_move":
         if not kinematics:
             raise ValueError("Kinematics engine is not initialized")
+        active_sim = _require_manual_motion()
         result = kinematics.inverse_kinematics(payload.target_position)
         if result["success"]:
             active_sim.set_joint_angles(result["joint_angles"])
