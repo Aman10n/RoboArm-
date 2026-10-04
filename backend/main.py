@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, FiniteFloat, model_validator
 
 from backend.config import settings
-from backend.db import SafetyZoneManager, SessionManager, init_db
+from backend.db import SafetyZoneManager, SessionManager, database_is_ready, init_db
 from backend.simulation.env import RoboArmSimulation, get_simulation
 from backend.simulation.kinematics import KinematicsEngine
 from backend.simulation.trajectory import TrajectoryExecutor, TrajectoryPlanner
@@ -267,6 +267,18 @@ async def get_status():
 @app.get("/api/health", tags=["system"])
 async def health_check():
     return {"status": "ok", "service": "roboarm-api", "version": app.version}
+
+
+@app.get("/api/ready", tags=["system"])
+async def readiness_check():
+    active_sim = _require_simulation()
+    checks = {
+        "database": database_is_ready(),
+        "simulation": active_sim.running,
+    }
+    if not all(checks.values()):
+        raise HTTPException(status_code=503, detail={"status": "not_ready", "checks": checks})
+    return {"status": "ready", "checks": checks}
 
 
 @app.get("/api/robot", tags=["robot"])

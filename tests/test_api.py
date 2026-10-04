@@ -22,6 +22,17 @@ def test_responses_include_request_correlation_metadata():
     assert float(response.headers["X-Process-Time-Ms"]) >= 0
 
 
+def test_readiness_reports_runtime_dependencies():
+    with TestClient(app) as client:
+        response = client.get("/api/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ready",
+        "checks": {"database": True, "simulation": True},
+    }
+
+
 def test_joint_payload_validation_and_emergency_stop():
     with TestClient(app) as client:
         invalid = client.post("/api/joints/set", json={"angles": [0, 0]})

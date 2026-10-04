@@ -126,6 +126,17 @@ def init_db():
     conn.close()
 
 
+def database_is_ready() -> bool:
+    """Return whether the configured SQLite store accepts a simple query."""
+    try:
+        conn = get_connection()
+        conn.execute("SELECT 1").fetchone()
+        conn.close()
+    except sqlite3.Error:
+        return False
+    return True
+
+
 class SessionManager:
     """Manages simulation sessions."""
 
