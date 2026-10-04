@@ -33,7 +33,7 @@ function Metric({ label, value, accent = false }) {
 }
 
 export default function Dashboard() {
-  const { connected, telemetry, telemetryHistory, robotInfo } = useAppContext()
+  const { connected, latencyMs, telemetry, telemetryHistory, robotInfo } = useAppContext()
   const numJoints = robotInfo?.num_joints || 7
   const jointLimits = robotInfo?.joint_limits || []
 
@@ -65,7 +65,7 @@ export default function Dashboard() {
           <Metric label="Simulation time" value={`${telemetry?.sim_time?.toFixed(1) || '0.0'} s`} accent />
           <Metric label="Physics steps" value={(telemetry?.step_count || 0).toLocaleString()} />
           <Metric label="Samples buffered" value={telemetryHistory.length} />
-          <Metric label="Stream rate" value="30 Hz" />
+          <Metric label="Round-trip latency" value={latencyMs === null ? '—' : `${latencyMs} ms`} />
         </div>
       </section>
 

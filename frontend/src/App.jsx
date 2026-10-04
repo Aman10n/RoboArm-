@@ -11,6 +11,8 @@ const Viewer3D = lazy(() => import('./components/Viewer3D'))
 
 function App() {
   const [connected, setConnected] = useState(false)
+  const [connectionState, setConnectionState] = useState('connecting')
+  const [latencyMs, setLatencyMs] = useState(null)
   const [robotInfo, setRobotInfo] = useState(null)
   const [telemetry, setTelemetry] = useState(null)
   const [jointAngles, setJointAngles] = useState([])
@@ -51,6 +53,11 @@ function App() {
       case 'mode_changed':
         setControlModeState(message.data.mode)
         break
+      case 'pong': {
+        const sentAt = Number(message.request_id?.replace('heartbeat-', ''))
+        if (Number.isFinite(sentAt)) setLatencyMs(Math.max(0, Date.now() - sentAt))
+        break
+      }
       case 'error':
         setNotice({ type: 'error', text: message.message })
         break
@@ -62,6 +69,7 @@ function App() {
   useEffect(() => {
     let disposed = false
     let reconnectTimer
+    let heartbeatTimer
     let retryDelay = 1000
 
     function connect() {
@@ -72,7 +80,16 @@ function App() {
       socket.onopen = () => {
         retryDelay = 1000
         setConnected(true)
+        setConnectionState('connected')
         setNotice(null)
+        heartbeatTimer = window.setInterval(() => {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+              command: 'ping',
+              request_id: `heartbeat-${Date.now()}`,
+            }))
+          }
+        }, 10_000)
       }
       socket.onmessage = (event) => {
         try {
@@ -83,7 +100,10 @@ function App() {
       }
       socket.onerror = () => socket.close()
       socket.onclose = () => {
+        window.clearInterval(heartbeatTimer)
         setConnected(false)
+        setLatencyMs(null)
+        setConnectionState(disposed ? 'offline' : 'reconnecting')
         if (wsRef.current === socket) wsRef.current = null
         if (!disposed) {
           reconnectTimer = window.setTimeout(connect, retryDelay)
@@ -99,6 +119,7 @@ function App() {
     return () => {
       disposed = true
       window.clearTimeout(reconnectTimer)
+      window.clearInterval(heartbeatTimer)
       const socket = wsRef.current
       wsRef.current = null
       if (socket) socket.close()
@@ -152,6 +173,8 @@ function App() {
 
   const contextValue = useMemo(() => ({
     connected,
+    connectionState,
+    latencyMs,
     robotInfo,
     telemetry,
     jointAngles,
@@ -169,7 +192,7 @@ function App() {
     setSafetyZones,
     setNotice,
   }), [
-    connected, controlMode, emergencyStop, ikTarget, jointAngles, linkStates,
+    connected, connectionState, controlMode, emergencyStop, ikTarget, jointAngles, latencyMs, linkStates,
     moveToIK, resetArm, robotInfo, safetyZones, setAllJoints, setControlMode,
     setJointAngle, telemetry, telemetryHistory,
   ])
@@ -205,7 +228,9 @@ function App() {
             </div>
             <div className={`connection-badge ${connected ? 'connected' : 'disconnected'}`}>
               <span className="connection-dot" />
-              {connected ? 'CONNECTED' : 'RECONNECTING'}
+              {connected
+                ? `CONNECTED${latencyMs !== null ? ` · ${latencyMs} MS` : ''}`
+                : connectionState.toUpperCase()}
             </div>
           </div>
         </header>
