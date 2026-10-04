@@ -16,7 +16,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, FiniteFloat, model_validator
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, ValidationError, model_validator
 
 from backend.config import settings
 from backend.db import SafetyZoneManager, SessionManager, database_is_ready, init_db
@@ -301,6 +301,50 @@ class SafetyZoneRequest(BaseModel):
     def validate_bounds(self):
         if any(low >= high for low, high in zip(self.min_bounds, self.max_bounds)):
             raise ValueError("Every minimum bound must be lower than its maximum")
+        return self
+
+
+class WebSocketCommand(BaseModel):
+    """Validated command envelope for the real-time control channel."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    command: Literal[
+        "set_joints",
+        "set_single_joint",
+        "ik_move",
+        "set_mode",
+        "emergency_stop",
+        "reset",
+        "get_state",
+        "ping",
+    ]
+    request_id: str | None = Field(default=None, max_length=64)
+    angles: list[FiniteFloat] | None = Field(default=None, min_length=7, max_length=7)
+    joint_index: int | None = Field(default=None, ge=0, lt=7)
+    angle: FiniteFloat | None = None
+    target_position: list[FiniteFloat] | None = Field(
+        default=None, min_length=3, max_length=3
+    )
+    mode: Literal["manual", "ai", "playback", "script"] | None = None
+
+    @model_validator(mode="after")
+    def validate_command_payload(self):
+        required_fields = {
+            "set_joints": ("angles",),
+            "set_single_joint": ("joint_index", "angle"),
+            "ik_move": ("target_position",),
+            "set_mode": ("mode",),
+        }
+        missing = [
+            field_name
+            for field_name in required_fields.get(self.command, ())
+            if getattr(self, field_name) is None
+        ]
+        if missing:
+            raise ValueError(
+                f"{self.command} requires: {', '.join(missing)}"
+            )
         return self
 
 
@@ -640,6 +684,8 @@ async def websocket_telemetry(websocket: WebSocket):
                 await _handle_ws_command(json.loads(raw), websocket)
             except json.JSONDecodeError:
                 await _send_ws_error(websocket, "Invalid JSON payload")
+            except ValidationError as exc:
+                await _send_ws_error(websocket, exc.errors(include_input=False)[0]["msg"])
             except (TypeError, ValueError) as exc:
                 await _send_ws_error(websocket, str(exc))
     except WebSocketDisconnect:
@@ -654,27 +700,35 @@ async def _send_ws_error(websocket: WebSocket, message: str) -> None:
 
 async def _handle_ws_command(message: dict, websocket: WebSocket) -> None:
     active_sim = _require_simulation()
-    command = message.get("command")
+    payload = WebSocketCommand.model_validate(message)
+    command = payload.command
 
     if command == "set_joints":
-        active_sim.set_joint_angles(message.get("angles", []))
+        active_sim.set_joint_angles(payload.angles)
     elif command == "set_single_joint":
-        active_sim.set_single_joint(
-            int(message.get("joint_index", -1)), float(message.get("angle", 0.0))
-        )
+        active_sim.set_single_joint(payload.joint_index, payload.angle)
     elif command == "ik_move":
-        target = message.get("target_position")
-        if not kinematics or not isinstance(target, list) or len(target) != 3:
-            raise ValueError("target_position must contain exactly 3 values")
-        result = kinematics.inverse_kinematics(target)
+        if not kinematics:
+            raise ValueError("Kinematics engine is not initialized")
+        result = kinematics.inverse_kinematics(payload.target_position)
         if result["success"]:
             active_sim.set_joint_angles(result["joint_angles"])
-        await websocket.send_text(json.dumps({"type": "ik_result", "data": result}))
+        await websocket.send_text(
+            json.dumps(
+                {"type": "ik_result", "request_id": payload.request_id, "data": result}
+            )
+        )
         return
     elif command == "set_mode":
-        _set_control_mode(str(message.get("mode", "")))
+        _set_control_mode(payload.mode)
         await websocket.send_text(
-            json.dumps({"type": "mode_changed", "data": {"mode": control_mode}})
+            json.dumps(
+                {
+                    "type": "mode_changed",
+                    "request_id": payload.request_id,
+                    "data": {"mode": control_mode},
+                }
+            )
         )
         return
     elif command == "emergency_stop":
@@ -690,12 +744,23 @@ async def _handle_ws_command(message: dict, websocket: WebSocket) -> None:
     elif command == "get_state":
         state = active_sim.get_joint_states()
         state["links"] = active_sim.get_link_states()
-        await websocket.send_text(json.dumps({"type": "state", "data": state}))
+        await websocket.send_text(
+            json.dumps(
+                {"type": "state", "request_id": payload.request_id, "data": state}
+            )
+        )
         return
-    else:
-        raise ValueError(f"Unknown command: {command}")
+    elif command == "ping":
+        await websocket.send_text(
+            json.dumps({"type": "pong", "request_id": payload.request_id})
+        )
+        return
 
-    await websocket.send_text(json.dumps({"type": "ack", "command": command}))
+    await websocket.send_text(
+        json.dumps(
+            {"type": "ack", "command": command, "request_id": payload.request_id}
+        )
+    )
 
 
 def _mount_production_frontend() -> None:

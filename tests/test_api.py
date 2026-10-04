@@ -61,6 +61,21 @@ def test_websocket_sends_metadata_and_telemetry():
     assert len(telemetry["data"]["joint_angles"]) == 7
 
 
+def test_websocket_validates_commands_and_correlates_responses():
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/telemetry") as websocket:
+            websocket.receive_json()
+            websocket.receive_json()
+            websocket.send_json({"command": "set_joints", "angles": [0.0]})
+            invalid = websocket.receive_json()
+            websocket.send_json({"command": "ping", "request_id": "heartbeat-1"})
+            pong = websocket.receive_json()
+
+    assert invalid["type"] == "error"
+    assert "at least 7 items" in invalid["message"]
+    assert pong == {"type": "pong", "request_id": "heartbeat-1"}
+
+
 def test_non_finite_motion_values_are_rejected():
     payload = '{"angles":[NaN,0,0,0,0,0,0]}'
     with TestClient(app) as client:
