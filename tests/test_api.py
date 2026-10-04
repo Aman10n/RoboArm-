@@ -14,6 +14,14 @@ def test_health_and_robot_metadata():
     assert robot.json()["num_joints"] == 7
 
 
+def test_responses_include_request_correlation_metadata():
+    with TestClient(app) as client:
+        response = client.get("/api/health", headers={"X-Request-ID": "test-request-42"})
+
+    assert response.headers["X-Request-ID"] == "test-request-42"
+    assert float(response.headers["X-Process-Time-Ms"]) >= 0
+
+
 def test_joint_payload_validation_and_emergency_stop():
     with TestClient(app) as client:
         invalid = client.post("/api/joints/set", json={"angles": [0, 0]})

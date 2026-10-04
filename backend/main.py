@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
+import time
 from contextlib import asynccontextmanager, suppress
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -127,6 +129,27 @@ app = FastAPI(
     version=settings.app_version,
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    """Attach correlation and timing metadata to every HTTP response."""
+    supplied_id = request.headers.get("X-Request-ID", "").strip()
+    request_id = supplied_id[:64] if supplied_id and supplied_id.isascii() else secrets.token_hex(8)
+    started_at = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = (time.perf_counter() - started_at) * 1000
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-Process-Time-Ms"] = f"{duration_ms:.2f}"
+    logger.info(
+        "%s %s completed with %s in %.2fms request_id=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+        request_id,
+    )
+    return response
 
 
 @app.exception_handler(RequestValidationError)
