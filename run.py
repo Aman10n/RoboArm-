@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import socket
 import subprocess
@@ -36,8 +37,29 @@ def check_prerequisites() -> None:
         raise RuntimeError(
             "Missing Python dependencies. Run: python -m pip install -r requirements.txt"
         )
-    if not shutil.which("npm"):
-        raise RuntimeError("Node.js and npm are required. Install Node.js 20 or newer.")
+    node_executable = shutil.which("node")
+    if not node_executable or not shutil.which("npm"):
+        raise RuntimeError("Node.js and npm are required. Install Node.js 24 LTS.")
+
+    node_version = subprocess.run(
+        [node_executable, "--version"],
+        capture_output=True,
+        check=False,
+        text=True,
+    ).stdout.strip()
+    match = re.fullmatch(r"v(\d+)\.(\d+)\.\d+", node_version)
+    major = int(match.group(1)) if match else 0
+    minor = int(match.group(2)) if match else 0
+    supported = (
+        (major == 20 and minor >= 19)
+        or (major == 22 and minor >= 12)
+        or major >= 23
+    )
+    if not supported:
+        raise RuntimeError(
+            f"Unsupported Node.js version {node_version or 'unknown'}. "
+            "Install Node.js 20.19+ or 22.12+."
+        )
     if not (FRONTEND_DIR / "node_modules").exists():
         raise RuntimeError("Frontend dependencies are missing. Run: cd frontend && npm install")
 

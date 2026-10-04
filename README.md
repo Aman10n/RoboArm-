@@ -60,7 +60,7 @@ RoboArm AI is a full-stack robotics simulation workspace for a KUKA LBR iiwa-ins
 ### Prerequisites
 
 - Python 3.10 or newer
-- Node.js 20 or newer
+- Node.js 20.19+ or 22.12+ (Node.js 24 LTS recommended)
 - Git
 
 ### Install
