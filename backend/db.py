@@ -188,6 +188,23 @@ class SessionManager:
         return [_row_to_dict(row, ("metadata",)) for row in rows]
 
     @staticmethod
+    def get_session(session_id: int):
+        """Return one session with its recorded event counts."""
+        with database_connection() as conn:
+            row = conn.execute(
+                """SELECT sessions.*,
+                          COUNT(DISTINCT telemetry_logs.id) AS telemetry_samples,
+                          COUNT(DISTINCT collision_events.id) AS collision_count
+                   FROM sessions
+                   LEFT JOIN telemetry_logs ON telemetry_logs.session_id = sessions.id
+                   LEFT JOIN collision_events ON collision_events.session_id = sessions.id
+                   WHERE sessions.id = ?
+                   GROUP BY sessions.id""",
+                (session_id,),
+            ).fetchone()
+        return _row_to_dict(row, ("metadata",)) if row else None
+
+    @staticmethod
     def log_telemetry(session_id: int, timestamp: float,
                       joint_angles: list, joint_velocities: list = None,
                       joint_torques: list = None, ee_pos: list = None,

@@ -142,3 +142,20 @@ def test_telemetry_recording_is_throttled(monkeypatch):
 
     assert len(recorded) == 1
     assert recorded[0][0:2] == (42, 1.25)
+
+
+def test_session_history_exposes_summary_and_validates_limits():
+    with TestClient(app) as client:
+        sessions = client.get("/api/sessions", params={"limit": 1})
+        session_id = sessions.json()[0]["id"]
+        summary = client.get(f"/api/sessions/{session_id}")
+        invalid_limit = client.get("/api/sessions", params={"limit": 0})
+        missing = client.get("/api/sessions/999999999")
+
+    assert sessions.status_code == 200
+    assert len(sessions.json()) == 1
+    assert summary.status_code == 200
+    assert summary.json()["telemetry_samples"] >= 0
+    assert summary.json()["collision_count"] >= 0
+    assert invalid_limit.status_code == 422
+    assert missing.status_code == 404

@@ -10,7 +10,7 @@ import time
 from contextlib import asynccontextmanager, suppress
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -501,8 +501,16 @@ async def delete_safety_zone(zone_id: int):
 
 
 @app.get("/api/sessions", tags=["sessions"])
-async def list_sessions():
-    return SessionManager.get_sessions()
+async def list_sessions(limit: int = Query(default=50, ge=1, le=200)):
+    return SessionManager.get_sessions(limit)
+
+
+@app.get("/api/sessions/{session_id}", tags=["sessions"])
+async def get_session(session_id: int):
+    session = SessionManager.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
 
 
 @app.get("/api/sessions/{session_id}/telemetry", tags=["sessions"])
