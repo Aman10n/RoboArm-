@@ -151,8 +151,7 @@ function App() {
   }, [sendCommand])
 
   const moveToIK = useCallback((position) => {
-    setIkTarget(position)
-    sendCommand('ik_move', { target_position: position })
+    if (sendCommand('ik_move', { target_position: position })) setIkTarget(position)
   }, [sendCommand])
 
   const setControlMode = useCallback((mode) => {
@@ -160,15 +159,17 @@ function App() {
   }, [sendCommand])
 
   const resetArm = useCallback(() => {
-    sendCommand('reset')
-    setTelemetryHistory([])
-    setIkTarget(null)
-    setNotice({ type: 'success', text: 'Robot reset and emergency stop released.' })
+    if (sendCommand('reset')) {
+      setTelemetryHistory([])
+      setIkTarget(null)
+      setNotice({ type: 'success', text: 'Robot reset and emergency stop released.' })
+    }
   }, [sendCommand])
 
   const emergencyStop = useCallback(() => {
-    sendCommand('emergency_stop')
-    setNotice({ type: 'error', text: 'Emergency stop engaged. Reset to resume motion.' })
+    if (sendCommand('emergency_stop')) {
+      setNotice({ type: 'error', text: 'Emergency stop engaged. Reset to resume motion.' })
+    }
   }, [sendCommand])
 
   const contextValue = useMemo(() => ({
