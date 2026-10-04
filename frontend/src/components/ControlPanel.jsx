@@ -44,7 +44,13 @@ export default function ControlPanel() {
   const jointNames = robotInfo?.joint_names || []
   const jointLimits = robotInfo?.joint_limits || []
   const motionDisabled = !connected || controlMode !== 'manual' || telemetry?.emergency_stopped
+    || telemetry?.safety_violations?.length > 0
   const objects = telemetry?.objects || {}
+  const systemStatus = telemetry?.emergency_stopped
+    ? 'Motion locked'
+    : telemetry?.safety_violations?.length
+      ? 'Safety boundary violation'
+      : connected ? 'Ready for commands' : 'Simulator offline'
 
   const handleIKMove = useCallback(() => {
     const position = ['x', 'y', 'z'].map((axis) => Number(ikInput[axis]))
@@ -112,9 +118,9 @@ export default function ControlPanel() {
       <section className="card status-card">
         <div>
           <span className="eyebrow">SYSTEM STATUS</span>
-          <strong>{telemetry?.emergency_stopped ? 'Motion locked' : connected ? 'Ready for commands' : 'Simulator offline'}</strong>
+          <strong>{systemStatus}</strong>
         </div>
-        <span className={`status-indicator ${connected && !telemetry?.emergency_stopped ? 'ready' : 'warning'}`} />
+        <span className={`status-indicator ${connected && !motionDisabled ? 'ready' : 'warning'}`} />
       </section>
 
       {controlMode !== 'manual' && (

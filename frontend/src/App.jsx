@@ -198,6 +198,7 @@ function App() {
   ])
 
   const emergencyStopped = Boolean(telemetry?.emergency_stopped)
+  const safetyViolations = telemetry?.safety_violations || []
 
   return (
     <AppContext.Provider value={contextValue}>
@@ -238,6 +239,13 @@ function App() {
         {emergencyStopped && (
           <div className="estop-banner" role="alert">
             Emergency stop is engaged. Use Reset system to resume motion.
+          </div>
+        )}
+
+        {safetyViolations.length > 0 && (
+          <div className="safety-banner" role="alert">
+            <strong>Safety boundary violation</strong>
+            <span>{safetyViolations.map((violation) => violation.message).join(' · ')}</span>
           </div>
         )}
 
