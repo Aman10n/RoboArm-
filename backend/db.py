@@ -5,6 +5,8 @@ Handles session recording, telemetry logs, collision events, and training runs.
 
 import json
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from backend.config import settings
 
@@ -30,12 +32,24 @@ def get_connection():
     return conn
 
 
+@contextmanager
+def database_connection() -> Iterator[sqlite3.Connection]:
+    """Provide a transaction that always closes and rolls back on failure."""
+    connection = get_connection()
+    try:
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
 def init_db():
     """Initialize database tables."""
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.executescript("""
+    with database_connection() as conn:
+        conn.executescript("""
         CREATE TABLE IF NOT EXISTS sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -120,18 +134,14 @@ def init_db():
             trajectory TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
-    """)
-
-    conn.commit()
-    conn.close()
+        """)
 
 
 def database_is_ready() -> bool:
     """Return whether the configured SQLite store accepts a simple query."""
     try:
-        conn = get_connection()
-        conn.execute("SELECT 1").fetchone()
-        conn.close()
+        with database_connection() as conn:
+            conn.execute("SELECT 1").fetchone()
     except sqlite3.Error:
         return False
     return True
@@ -142,37 +152,30 @@ class SessionManager:
 
     @staticmethod
     def create_session(name: str, mode: str = "manual") -> int:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO sessions (name, mode) VALUES (?, ?)",
-            (name, mode)
-        )
-        session_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        return session_id
+        with database_connection() as conn:
+            cursor = conn.execute(
+                "INSERT INTO sessions (name, mode) VALUES (?, ?)",
+                (name, mode),
+            )
+            return int(cursor.lastrowid)
 
     @staticmethod
     def end_session(session_id: int):
-        conn = get_connection()
-        conn.execute(
-            """UPDATE sessions SET ended_at = CURRENT_TIMESTAMP,
-               duration_seconds = (julianday(CURRENT_TIMESTAMP) - julianday(created_at)) * 86400
-               WHERE id = ?""",
-            (session_id,)
-        )
-        conn.commit()
-        conn.close()
+        with database_connection() as conn:
+            conn.execute(
+                """UPDATE sessions SET ended_at = CURRENT_TIMESTAMP,
+                   duration_seconds = (julianday(CURRENT_TIMESTAMP) - julianday(created_at)) * 86400
+                   WHERE id = ?""",
+                (session_id,),
+            )
 
     @staticmethod
     def get_sessions(limit: int = 50):
-        conn = get_connection()
-        rows = conn.execute(
-            "SELECT * FROM sessions ORDER BY created_at DESC LIMIT ?",
-            (limit,)
-        ).fetchall()
-        conn.close()
+        with database_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM sessions ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
         return [_row_to_dict(row, ("metadata",)) for row in rows]
 
     @staticmethod
@@ -180,49 +183,56 @@ class SessionManager:
                       joint_angles: list, joint_velocities: list = None,
                       joint_torques: list = None, ee_pos: list = None,
                       ee_orn: list = None):
-        conn = get_connection()
-        conn.execute(
-            """INSERT INTO telemetry_logs
-               (session_id, timestamp, joint_angles, joint_velocities,
-                joint_torques, end_effector_pos, end_effector_orn)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (session_id, timestamp,
-             json.dumps(joint_angles),
-             json.dumps(joint_velocities) if joint_velocities else None,
-             json.dumps(joint_torques) if joint_torques else None,
-             json.dumps(ee_pos) if ee_pos else None,
-             json.dumps(ee_orn) if ee_orn else None)
-        )
-        conn.commit()
-        conn.close()
+        with database_connection() as conn:
+            conn.execute(
+                """INSERT INTO telemetry_logs
+                   (session_id, timestamp, joint_angles, joint_velocities,
+                    joint_torques, end_effector_pos, end_effector_orn)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    session_id,
+                    timestamp,
+                    json.dumps(joint_angles),
+                    json.dumps(joint_velocities) if joint_velocities else None,
+                    json.dumps(joint_torques) if joint_torques else None,
+                    json.dumps(ee_pos) if ee_pos else None,
+                    json.dumps(ee_orn) if ee_orn else None,
+                ),
+            )
 
     @staticmethod
     def log_collision(session_id: int, timestamp: float, body_a: int,
                       body_b: int, link_a: int, link_b: int,
                       contact_point: list, contact_normal: list,
                       contact_force: float, joint_angles: list):
-        conn = get_connection()
-        conn.execute(
-            """INSERT INTO collision_events
-               (session_id, timestamp, body_a, body_b, link_a, link_b,
-                contact_point, contact_normal, contact_force, joint_angles_at_impact)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (session_id, timestamp, body_a, body_b, link_a, link_b,
-             json.dumps(contact_point), json.dumps(contact_normal),
-             contact_force, json.dumps(joint_angles))
-        )
-        conn.commit()
-        conn.close()
+        with database_connection() as conn:
+            conn.execute(
+                """INSERT INTO collision_events
+                   (session_id, timestamp, body_a, body_b, link_a, link_b,
+                    contact_point, contact_normal, contact_force, joint_angles_at_impact)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    session_id,
+                    timestamp,
+                    body_a,
+                    body_b,
+                    link_a,
+                    link_b,
+                    json.dumps(contact_point),
+                    json.dumps(contact_normal),
+                    contact_force,
+                    json.dumps(joint_angles),
+                ),
+            )
 
     @staticmethod
     def get_telemetry(session_id: int, limit: int = 1000):
-        conn = get_connection()
-        rows = conn.execute(
-            """SELECT * FROM telemetry_logs WHERE session_id = ?
-               ORDER BY timestamp DESC LIMIT ?""",
-            (session_id, limit)
-        ).fetchall()
-        conn.close()
+        with database_connection() as conn:
+            rows = conn.execute(
+                """SELECT * FROM telemetry_logs WHERE session_id = ?
+                   ORDER BY timestamp DESC LIMIT ?""",
+                (session_id, limit),
+            ).fetchall()
         json_fields = (
             "joint_angles", "joint_velocities", "joint_torques",
             "end_effector_pos", "end_effector_orn",
@@ -231,12 +241,11 @@ class SessionManager:
 
     @staticmethod
     def get_collisions(session_id: int):
-        conn = get_connection()
-        rows = conn.execute(
-            "SELECT * FROM collision_events WHERE session_id = ? ORDER BY timestamp",
-            (session_id,)
-        ).fetchall()
-        conn.close()
+        with database_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM collision_events WHERE session_id = ? ORDER BY timestamp",
+                (session_id,),
+            ).fetchall()
         json_fields = (
             "contact_point", "contact_normal", "joint_angles_at_impact",
         )
@@ -249,38 +258,31 @@ class SafetyZoneManager:
     @staticmethod
     def create_zone(name: str, zone_type: str, min_bounds: list,
                     max_bounds: list, color: str = "#ff000080") -> int:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            """INSERT INTO safety_zones
-               (name, zone_type, min_x, min_y, min_z, max_x, max_y, max_z, color)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (name, zone_type, *min_bounds, *max_bounds, color)
-        )
-        zone_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        return zone_id
+        with database_connection() as conn:
+            cursor = conn.execute(
+                """INSERT INTO safety_zones
+                   (name, zone_type, min_x, min_y, min_z, max_x, max_y, max_z, color)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (name, zone_type, *min_bounds, *max_bounds, color),
+            )
+            return int(cursor.lastrowid)
 
     @staticmethod
     def get_zones():
-        conn = get_connection()
-        rows = conn.execute(
-            "SELECT * FROM safety_zones WHERE active = 1 ORDER BY name"
-        ).fetchall()
-        conn.close()
+        with database_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM safety_zones WHERE active = 1 ORDER BY name"
+            ).fetchall()
         return [dict(r) for r in rows]
 
     @staticmethod
     def delete_zone(zone_id: int) -> bool:
-        conn = get_connection()
-        cursor = conn.execute(
-            "UPDATE safety_zones SET active = 0 WHERE id = ? AND active = 1",
-            (zone_id,),
-        )
-        conn.commit()
-        conn.close()
-        return cursor.rowcount > 0
+        with database_connection() as conn:
+            cursor = conn.execute(
+                "UPDATE safety_zones SET active = 0 WHERE id = ? AND active = 1",
+                (zone_id,),
+            )
+            return cursor.rowcount > 0
 
     @staticmethod
     def check_position(position: list) -> list:
