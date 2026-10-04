@@ -452,6 +452,18 @@ def _plan_trajectory(req: TrajectoryRequest) -> dict:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+def _preflight_trajectory_safety(trajectory: dict) -> None:
+    """Ensure every planned waypoint complies with active safety zones."""
+    for index, waypoint in enumerate(trajectory["waypoints"]):
+        try:
+            _validate_motion_safety(waypoint)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Trajectory rejected at waypoint {index + 1}: {exc}",
+            ) from exc
+
+
 @app.post("/api/trajectory/plan", tags=["trajectory"])
 async def plan_trajectory(req: TrajectoryRequest):
     return _plan_trajectory(req)
@@ -462,6 +474,7 @@ async def execute_trajectory(req: TrajectoryRequest):
     if not trajectory_executor:
         raise HTTPException(status_code=503, detail="Trajectory executor is not initialized")
     trajectory = _plan_trajectory(req)
+    _preflight_trajectory_safety(trajectory)
     _set_control_mode("playback")
     trajectory_executor.load_trajectory(
         trajectory, on_complete=lambda: _set_control_mode("manual")

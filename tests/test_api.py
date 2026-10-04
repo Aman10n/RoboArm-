@@ -212,3 +212,25 @@ def test_trajectory_endpoint_returns_actionable_limit_error():
 
     assert response.status_code == 422
     assert "too short" in response.json()["detail"]
+
+
+def test_trajectory_execution_preflights_safety_zones():
+    zone = {
+        "name": "trajectory-start-guard",
+        "zone_type": "keep_out",
+        "min_bounds": [-0.05, 0.15, 0.60],
+        "max_bounds": [0.05, 0.25, 0.66],
+    }
+    with TestClient(app) as client:
+        created = client.post("/api/safety-zones", json=zone)
+        zone_id = created.json()["zone_id"]
+        response = client.post(
+            "/api/trajectory/execute",
+            json={"target_angles": [0.1] * 7, "duration": 2.0},
+        )
+        mode = client.get("/api/mode")
+        client.delete(f"/api/safety-zones/{zone_id}")
+
+    assert response.status_code == 409
+    assert "waypoint 1" in response.json()["detail"]
+    assert mode.json() == {"mode": "manual"}
